@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://efata777.com/sitemap.xml

@@ -1,0 +1,26 @@
+/* Admin analytics is intentionally read-only and draws no fabricated metrics. */
+.admin-panel{overflow:hidden}
+.admin-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:1.5rem;background:linear-gradient(125deg,#103e33 0%,#195e4d 70%,#a17b43 190%);color:#faf5e8;padding:clamp(1rem,3vw,2rem);border-radius:1rem;margin-bottom:1.1rem}
+.admin-intro h2{font-size:clamp(1.65rem,3.4vw,2.6rem);margin:.4rem 0}
+.admin-intro p{max-width:50rem;line-height:1.55;margin-bottom:0;color:#f5efdf}
+.admin-intro .eyebrow{color:#e2c487}
+.admin-intro button{white-space:nowrap;background:#f8f1df;color:#20463a}
+.admin-labels{display:flex;justify-content:space-between;gap:.8rem;flex-wrap:wrap;color:#557365;font-size:.78rem;margin:.5rem 0 1.1rem}
+.admin-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem}
+.admin-metric{border:1px solid #d8e3dc;border-radius:.85rem;padding:1rem;background:#fbfcf9;display:flex;flex-direction:column;gap:.5rem;min-height:155px}
+.admin-metric span{font-weight:700;color:#2e5447;font-size:.82rem}
+.admin-metric strong{font-size:clamp(1.5rem,3vw,2.15rem);color:#123e32;line-height:1.05}
+.admin-metric small{color:#5c7066;font-size:.78rem;line-height:1.4}
+.admin-detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:1rem;margin:1.2rem 0}
+.admin-detail{background:#fff;border:1px solid #d7e1d9;border-radius:1rem;padding:clamp(1rem,2vw,1.5rem)}
+.admin-detail h3{margin:0 0 .4rem;color:#173e33}.admin-detail p{color:#65756b;line-height:1.45;font-size:.86rem}
+.admin-detail ul{padding-left:1.2rem}
+.admin-detail li{margin:.7rem 0;color:#324e42;line-height:1.35}
+.admin-detail li span{display:block;color:#65756b;font-size:.8rem}
+.admin-trend{display:flex;gap:.35rem;align-items:end;justify-content:space-around;height:210px;margin-top:1.5rem}
+.admin-trend-day{display:flex;flex:1;flex-direction:column;align-items:center;gap:.3rem;min-width:0;font-size:.75rem;color:#52665a}
+.admin-trend-track{height:158px;width:70%;max-width:44px;background:#e7efe8;border-radius:.45rem;display:flex;align-items:end;overflow:hidden}
+.admin-trend-track div{width:100%;background:linear-gradient(#b89a61,#2d765b);border-radius:.4rem .4rem 0 0}
+.admin-trend-count{font-weight:700;color:#305747}
+.admin-notice{font-size:.83rem;color:#5e6f65;padding:.8rem 1rem;border-left:3px solid #b29b6d;background:#f7f6f0}
+@media(max-width:680px){.admin-intro{flex-direction:column}.admin-intro button{width:100%}}

@@ -1,0 +1,24 @@
+{
+  "name": "bible-app-efata777",
+  "private": true,
+  "version": "0.14.0-rc",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "start": "node server.mjs",
+    "test": "vitest run tests/api.test.js",
+    "lint": "eslint .",
+    "test:logic": "node --test tests/references.node.test.js tests/server.node.test.js tests/sse.node.test.js tests/faith-preferences.node.test.js tests/landing.node.test.js tests/pricing.node.test.js tests/test_admin_metrics.node.test.js tests/railway-env.node.test.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.1.0",
+    "vite": "8.2.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "vitest": "4.1.11",
+    "eslint": "10.9.0"
+  }
+}

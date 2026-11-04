@@ -1,0 +1,12 @@
+{
+  "release_id": "BIBLE-APP-EFATA777",
+  "display_version": "0.14.0-rc-admin-analytics",
+  "component": "frontend",
+  "channel": "development-candidate",
+  "namespace": "bible_app",
+  "api_contract": "bible.sse.v1",
+  "content_source": "bible-livre",
+  "content_source_version": "2025.1.0",
+  "security_profile": "csp-pkce-r1",
+  "commit": "UNCOMMITTED_CANDIDATE_FOR_AO01"
+}
