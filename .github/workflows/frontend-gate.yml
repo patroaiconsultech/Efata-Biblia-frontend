@@ -35,7 +35,6 @@ jobs:
         working-directory: ${{ steps.frontend.outputs.app_dir }}
         env:
           CI: "true"
-          VITE_API_BASE_URL: "http://127.0.0.1:19001"
         run: bash ci/verify.sh
       - uses: actions/setup-python@v5
         with:
@@ -44,7 +43,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check 'playwright==1.57.0'
           python -m playwright install --with-deps chromium
-      - name: Smoke production Vite bundle in Chromium with mock API
+      - name: Smoke production Node /api proxy and native login in Chromium
         working-directory: ${{ steps.frontend.outputs.app_dir }}
         env:
           CI: "true"
