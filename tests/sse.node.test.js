@@ -153,7 +153,8 @@ test("SSE consumer obtains trusted tenant from /api/auth/me and binds body reque
   });
   assert.deepEqual(received, ["meta", "content.delta", "done"]);
   assert.equal(calls.length, 2);
-  assert.equal(calls[0].options.headers["X-Tenant-ID"], "tenant-demo");
+  assert.equal(calls[0].options.headers["X-Tenant-ID"], undefined);
+  assert.equal(calls[1].options.credentials, "same-origin");
 });
 
 test("SSE consumer rejects valid-looking first meta belonging to another tenant, thread or request", async () => {

@@ -1,36 +1,20 @@
-# Bíblia Sagrada Digital — Bible App
+# EFATÀ 777 — Bible App RC014 native auth candidate
+**Bootstrap independent repository. AO-01 staging review required; NOT PRODUCTION APPROVED.**
 
-Frontend independente da Bíblia Sagrada Digital. O aplicativo oferece leitura determinística, busca, jornada, diário/oração e Guia da Palavra com SSE.
+This is a candidate based on RC014 Admin Analytics plus the native-auth delta.
+No ORKIO dependencies; no OIDC; session cookie issued by Bible API via the
+Bible App same-origin `/api` reverse proxy in `server.mjs`.
 
-## Desenvolvimento local
+## Local
+Run the Bible API with a **local** database and native mode after migrating to
+`009_bible_native_auth`. Set `BIBLE_API_ORIGIN=http://127.0.0.1:8080`
+for Vite or production Node `server.mjs`, and start with `npm ci`,
+`npm run test:logic`, `npm test`, `npm run build`.
+`npm ci` and Vite build require a functioning npm registry.
+For staging, use the values in `RAILWAY_STAGING_NATIVE.env.example`.
 
-```bash
-npm ci
-cp .env.example .env
-npm run dev
-```
+No `VITE_API_BASE_URL`, `VITE_OIDC_*`, `VITE_DEMO_*` values may be defined.
+A public browser build must never receive secrets.
 
-Abra http://localhost:5173 (Vite). O modo local envia headers demo somente para o Bible API local; `npm start` serve um build de produção, que exige configuração OIDC real. Em produção, o login deve usar OIDC Authorization Code + PKCE e o backend deve decidir identidade, tenant, role e autorização.
-
-## Build e execução
-
-```bash
-npm run build
-PORT=8080 npm start
-```
-
-## Princípios de produto
-
-A leitura básica não depende de IA ou ORKIO. O frontend separa Escritura, contexto, interpretação e reflexão. A fonte Bíblia Livre é atribuída na interface e a licença é preservada no backend/corpus.
-
-O bundle não deve conter API keys, client secrets, tokens, DATABASE_URL ou chaves de criptografia. Apenas variáveis públicas como `VITE_API_BASE_URL` podem ser usadas no build.
-\n> RC 0.12-FP1 (local, proposta): cadastro opcional de tradição de fé com consentimento e exclusão; o corpus atual ainda não cobre todos os cânones. Veja `RC012_FAITH_PROFILE_STATUS.md` na raiz do pacote. Sem deploy ou cobrança.\n
-
-## RC 0.14 — Gestão (somente demo local)
-
-A aba **Gestão** aparece somente quando `/api/auth/me` devolve role `admin`.
-Para uma demonstração local segura, configure `VITE_DEMO_ADMIN_ENABLED=true` no frontend
-e inclua **explicitamente** o usuário demo em `BIBLE_DEMO_ADMIN_USERS` no backend.
-O backend continua sendo a autoridade; a variável frontend não concede autorização.
-O endpoint `/api/admin/overview` exige SQLite local e não funciona em staging/produção.
-Não exibe religião, conteúdos privados, diálogos, nomes nem receita não comprovada.
+The frontend Railway healthcheck is `/api/readiness` through the proxy.
+No CI workflow performs deploy/migrations automatically.

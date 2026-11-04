@@ -9,10 +9,11 @@ export async function consumeBibleStream(threadId, content, mode, onEvent, signa
   if (typeof principal.tenant_id !== "string" || !principal.tenant_id) {
     throw new Error("BIBLE_SSE_AUTH_CONTEXT_INVALID");
   }
-  const headers = apiHeaders({ "Content-Type": "application/json", Accept: "text/event-stream" });
+  const headers = apiHeaders({ "Content-Type": "application/json", Accept: "text/event-stream" }, "POST");
   const requestId = headers["X-Request-ID"];
   const response = await fetch(`${apiBaseUrl()}/api/conversations/${encodeURIComponent(threadId)}/stream`, {
     method: "POST",
+    credentials: "same-origin",
     headers,
     body: JSON.stringify({ thread_id: threadId, content, mode, request_id: requestId }),
     signal,

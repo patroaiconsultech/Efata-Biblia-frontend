@@ -34,7 +34,7 @@ test("structured data describes the existing website and makes no unsupported pr
   assert.ok(data["@graph"].every((x) => !x.offers && !x.aggregateRating));
 });
 
-test("robots, sitemap and OIDC application entry are separated", () => {
+test("robots, sitemap and native application entry are separated", () => {
   const robots = read("public/robots.txt");
   const sitemap = read("public/sitemap.xml");
   const app = read("app/index.html");

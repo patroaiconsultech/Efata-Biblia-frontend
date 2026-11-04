@@ -9,7 +9,7 @@
     "start": "node server.mjs",
     "test": "vitest run tests/api.test.js",
     "lint": "eslint .",
-    "test:logic": "node --test tests/references.node.test.js tests/server.node.test.js tests/sse.node.test.js tests/faith-preferences.node.test.js tests/landing.node.test.js tests/pricing.node.test.js tests/test_admin_metrics.node.test.js tests/railway-env.node.test.js"
+    "test:logic": "node --test tests/references.node.test.js tests/server.node.test.js tests/sse.node.test.js tests/faith-preferences.node.test.js tests/landing.node.test.js tests/pricing.node.test.js tests/test_admin_metrics.node.test.js tests/railway-env.node.test.js tests/proxy-native.node.test.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.0",

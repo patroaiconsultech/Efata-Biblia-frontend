@@ -1,12 +1,13 @@
 {
   "release_id": "BIBLE-APP-EFATA777",
-  "display_version": "0.14.0-rc-admin-analytics",
+  "display_version": "0.14.0-rc-native-auth-bootstrap",
   "component": "frontend",
   "channel": "development-candidate",
   "namespace": "bible_app",
   "api_contract": "bible.sse.v1",
   "content_source": "bible-livre",
   "content_source_version": "2025.1.0",
-  "security_profile": "csp-pkce-r1",
-  "commit": "UNCOMMITTED_CANDIDATE_FOR_AO01"
+  "security_profile": "native-session-independent-v1",
+  "commit": "UNCOMMITTED_CANDIDATE_FOR_AO01",
+  "parent_artifact_sha256": "64513d1ddc51c049fef86e47c5f952303cbf627af08d15876ed97678534ea888"
 }

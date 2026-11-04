@@ -91,7 +91,7 @@ test("public landing serves static SEO and keeps app/private routes noindex", as
     assert.match((await request(port, "/")).headers["x-robots-tag"] || "", /noindex/, "Indexing must be disabled by default");
     assert.match((await request(port, "/app/")).body, /noindex/);
     assert.match((await request(port, "/app/")).headers["x-robots-tag"] || "", /noindex/);
-    assert.match((await request(port, "/auth/callback")).body, /noindex/);
+    assert.equal((await request(port, "/auth/callback")).status, 404);
     assert.match((await request(port, "/robots.txt")).body, /Disallow/);
     assert.equal((await request(port, "/desconhecido")).status, 404, "Unknown SEO URLs must not become soft-200 pages");
   } finally {
@@ -101,20 +101,14 @@ test("public landing serves static SEO and keeps app/private routes noindex", as
 });
 
 
-test("browser CSP allows public OIDC token origin without broad wildcard", async () => {
-  const temporary = mkdtempSync(join(tmpdir(), "efata-oidc-csp-"));
+test("browser CSP permits same-origin API and forbids external OIDC/API", async () => {
+  const temporary = mkdtempSync(join(tmpdir(), "efata-native-csp-"));
   const port = await chooseFreePort();
   cpSync(join(here, "..", "server.mjs"), join(temporary, "server.mjs"));
   mkdirSync(join(temporary, "dist"), { recursive: true });
-  writeFileSync(join(temporary, "dist", "index.html"), "<title>OIDC CSP smoke</title>");
+  writeFileSync(join(temporary, "dist", "index.html"), "<title>Native session CSP</title>");
   const server = spawn(process.execPath, [join(temporary, "server.mjs")], {
-    cwd: temporary,
-    env: {
-      ...process.env, PORT: String(port),
-      BIBLE_API_ORIGIN: "https://api.bible.example.org",
-      VITE_OIDC_ISSUER: "https://login.example.org/realms/efata",
-    },
-    stdio: "ignore",
+    cwd: temporary, env: { ...process.env, PORT: String(port) }, stdio: "ignore",
   });
   try {
     let response;
@@ -123,8 +117,9 @@ test("browser CSP allows public OIDC token origin without broad wildcard", async
     }
     assert.equal(response?.status, 200);
     const csp = response.headers["content-security-policy"];
-    assert.match(csp, /connect-src 'self' https:\/\/api\.bible\.example\.org https:\/\/login\.example\.org;/);
-    assert.doesNotMatch(csp, /connect-src[^;]*\*/);
+    assert.match(csp, /connect-src 'self';/);
+    assert.doesNotMatch(csp, /oidc|https:/);
+    assert.equal((await request(port, "/api/auth/session")).status, 503);
   } finally {
     server.kill("SIGTERM");
     rmSync(temporary, { recursive: true, force: true });

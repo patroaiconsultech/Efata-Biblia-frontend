@@ -3,13 +3,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-# Railway Dockerfile builds do not expose service variables automatically.
-# Declare only public Vite configuration as build args. NEVER pass secrets.
-ARG VITE_API_BASE_URL
-ARG VITE_OIDC_ISSUER
-ARG VITE_OIDC_CLIENT_ID
-ARG VITE_OIDC_REDIRECT_URI
-ARG VITE_BUILD_SHA
+# The browser uses relative /api, so NO API/OIDC secrets or URLs are built in.
+ARG VITE_BUILD_SHA=UNPINNED
 
 COPY . .
 RUN node ci/validate_railway_build_env.mjs && npm run build

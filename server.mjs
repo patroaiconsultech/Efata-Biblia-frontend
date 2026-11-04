@@ -1,5 +1,6 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,24 +19,94 @@ const mime = {
   ".txt": "text/plain; charset=utf-8",
   ".webmanifest": "application/manifest+json",
 };
-function safeConnectOrigin(raw) {
+function validateApiOrigin(raw) {
+  if (!raw) return null;
   try {
-    const parsed = new URL(raw);
-    if (!["https:", "http:"].includes(parsed.protocol) || parsed.username || parsed.password) return "";
-    return parsed.origin;
-  } catch {
-    return "";
-  }
+    const url = new URL(raw);
+    const internal = url.hostname.endsWith(".railway.internal");
+    if (!["https:", "http:"].includes(url.protocol) || url.username || url.password
+      || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")
+      || (url.protocol === "http:" && !internal && !["localhost", "127.0.0.1"].includes(url.hostname))) return null;
+    return url.origin;
+  } catch { return null; }
 }
-const apiOrigin = safeConnectOrigin(process.env.BIBLE_API_ORIGIN || "http://localhost:8080");
-const oidcOrigin = safeConnectOrigin(process.env.VITE_OIDC_ISSUER || "");
+const apiOrigin = validateApiOrigin(process.env.BIBLE_API_ORIGIN || "");
+const requestHeaderAllowlist = new Set([
+  "accept", "content-type", "content-length", "cookie", "origin", "x-csrf-token",
+  "x-request-id", "last-event-id", "idempotency-key",
+]);
+const responseHeaderAllowlist = new Set([
+  "content-type", "cache-control", "set-cookie", "retry-after",
+  "x-request-id", "content-disposition",
+]);
+const maxPayloadBytes = 1024 * 1024;
+
+function proxyApi(request, response) {
+  if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(request.method)) {
+    sendText(response, 405, "Method not allowed");
+    return;
+  }
+  if (!apiOrigin) { sendText(response, 503, "BIBLE_API_ORIGIN is not configured"); return; }
+  let target;
+  try {
+    if (!request.url?.startsWith("/api/") || /%2f|%5c|\\\\/i.test(request.url)) throw Error();
+    target = new URL(request.url, apiOrigin);
+    if (target.origin !== apiOrigin || !target.pathname.startsWith("/api/")) throw Error();
+  } catch {
+    sendText(response, 400, "Invalid API path");
+    return;
+  }
+  const declared = Number(request.headers["content-length"] || 0);
+  if (!Number.isSafeInteger(declared) || declared > maxPayloadBytes) {
+    sendText(response, 413, "Payload too large"); return;
+  }
+  const outgoing = {};
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (requestHeaderAllowlist.has(name) && value !== undefined) outgoing[name] = value;
+  }
+  const transport = target.protocol === "https:" ? httpsRequest : httpRequest;
+  let finished = false;
+  const upstream = transport(target, { method: request.method, headers: outgoing }, (upstreamResponse) => {
+    const safeHeaders = { ...headers, "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
+    for (const [name, value] of Object.entries(upstreamResponse.headers)) {
+      if (responseHeaderAllowlist.has(name)) safeHeaders[name] = value;
+    }
+    if (finished) { upstreamResponse.destroy(); return; }
+    response.writeHead(upstreamResponse.statusCode || 502, safeHeaders);
+    if (request.method === "HEAD") { upstreamResponse.resume(); response.end(); return; }
+    if (String(upstreamResponse.headers["content-type"] || "").startsWith("text/event-stream")) {
+      upstreamResponse.setTimeout(0);
+    }
+    upstreamResponse.pipe(response);
+  });
+  upstream.setTimeout(30000, () => upstream.destroy());
+  upstream.on("error", () => {
+    if (finished) return;
+    finished = true;
+    if (!response.headersSent) sendText(response, 502, "BIBLE_API_UNAVAILABLE");
+    else response.end();
+  });
+  let totalBytes = 0;
+  request.on("data", (chunk) => {
+    totalBytes += chunk.length;
+    if (totalBytes > maxPayloadBytes && !finished) {
+      finished = true;
+      request.unpipe(upstream);
+      upstream.destroy();
+      if (!response.headersSent) sendText(response, 413, "Payload too large");
+      else response.end();
+    }
+  });
+  request.on("aborted", () => upstream.destroy());
+  request.pipe(upstream);
+}
 
 const headers = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
-  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Referrer-Policy": "no-referrer",
   "Permissions-Policy": "camera=(), geolocation=(), payment=(), usb=(), microphone=()",
-  "Content-Security-Policy": `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ${apiOrigin} ${oidcOrigin}; media-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests`,
+  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests",
 };
 
 function sendText(response, status, message, additionalHeaders = {}) {
@@ -44,6 +115,10 @@ function sendText(response, status, message, additionalHeaders = {}) {
 }
 
 createServer((request, response) => {
+  if ((request.url || "").startsWith("/api/")) {
+    proxyApi(request, response);
+    return;
+  }
   if (request.method !== "GET" && request.method !== "HEAD") {
     sendText(response, 405, "Method not allowed", { Allow: "GET, HEAD" });
     return;
@@ -76,7 +151,7 @@ createServer((request, response) => {
   let file = candidate;
   if (!existsSync(file) || !statSync(file).isFile()) {
     if (requestPath === "/" || requestPath === "/index.html") file = join(root, "index.html");
-    else if (requestPath.startsWith("/app/") || requestPath === "/auth/callback") file = join(root, "app", "index.html");
+    else if (requestPath.startsWith("/app/")) file = join(root, "app", "index.html");
     else {
       sendText(response, 404, "Not found", { "X-Robots-Tag": "noindex" });
       return;
@@ -86,7 +161,7 @@ createServer((request, response) => {
     sendText(response, 404, "Not found", { "X-Robots-Tag": "noindex" });
     return;
   }
-  const privateRoute = requestPath.startsWith("/app/") || requestPath === "/auth/callback";
+  const privateRoute = requestPath.startsWith("/app/");
   const extension = extname(file);
   const cache = extension === ".html" || extension === ".xml" || extension === ".txt"
     ? "no-cache"

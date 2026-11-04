@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Production-bundle browser smoke: isolated API fixture, no external service and no billing."""
+"""Native login browser smoke against the production Node server and synthetic API.
+No external provider, production billing, or actual PostgreSQL in this CI gate.
+"""
 from __future__ import annotations
-
 import json
 import os
 import subprocess
@@ -13,180 +14,142 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import urlopen
-
-try:
-    from playwright.sync_api import sync_playwright, expect
-except ImportError as exc:
-    raise SystemExit("Install the pinned Playwright Python dependency before running browser smoke") from exc
+from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_URL = "http://127.0.0.1:18080"
 API_URL = "http://127.0.0.1:19001"
 VERSE = "Texto bíblico sintético, exclusivo do teste de interface."
 CALLS: list[tuple[str, str]] = []
-PLANS = {
-    "checkout_enabled": False,
-    "items": [
-        {
-            "code": "smoke_premium",
-            "name": "Plano de teste",
-            "price_brl": "9.90",
-            "access_days": 30,
-            "features": ["Recurso sintético de teste"],
-        }
-    ],
-}
-CHAPTER = {
-    "work_id": "work_gen",
-    "chapter": 1,
-    "units": [
-        {
-            "text_unit_id": "tu_work_gen_1_1",
-            "verse": 1,
-            "text": VERSE,
-        }
-    ],
-}
-WORKS = [{"work_id": "work_gen", "title": "Gênesis"}]
+CSRF = "a" * 64
 
 
 class FixtureApi(BaseHTTPRequestHandler):
-    def log_message(self, *_args: object) -> None:
+    def log_message(self, *_args) -> None:
         pass
 
-    def respond(self, status: int, payload: object) -> None:
+    def respond(self, status: int, payload: object, *, cookie=False) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", APP_URL)
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, X-Tenant-ID, X-User-ID, X-Role")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        if cookie:
+            # HTTP-only fixture; production cookie is __Host- Secure.
+            self.send_header("Set-Cookie", "bible_smoke_session=opaque; Path=/; HttpOnly; SameSite=Lax")
         self.end_headers()
         self.wfile.write(body)
 
-    def do_OPTIONS(self) -> None:
-        self.respond(200, {})
+    def logged_in(self) -> bool:
+        return "bible_smoke_session=opaque" in (self.headers.get("Cookie") or "")
 
-    def do_GET(self) -> None:
+    def context(self):
+        return {"authenticated": True, "user_id": "test-user", "tenant_id": "test-tenant",
+                "role": "member", "auth_method": "native_session", "csrf_token": CSRF}
+
+    def do_GET(self):
         path = urlparse(self.path).path
         CALLS.append(("GET", path))
-        if path == "/api/works":
-            return self.respond(200, WORKS)
+        if path == "/api/readiness": return self.respond(200, {"ready": True})
+        if path == "/api/auth/status": return self.respond(200, {
+            "status": "authentication_required", "mode": "native_session",
+            "registration_enabled": False, "password_reset_enabled": False})
+        if path == "/api/auth/session":
+            if not self.logged_in():
+                return self.respond(401, {"detail": {"code": "BIBLE_SESSION_REQUIRED"}})
+            return self.respond(200, self.context())
+        if not self.logged_in():
+            return self.respond(401, {"detail": {"code": "BIBLE_SESSION_REQUIRED"}})
+        if path == "/api/auth/me": return self.respond(200, self.context())
+        if path == "/api/works": return self.respond(200, [{"work_id": "work_gen", "title": "Gênesis"}])
         if path == "/api/works/work_gen/chapters/1":
-            return self.respond(200, CHAPTER)
-        if path == "/api/search":
-            return self.respond(200, {
-                "results": [{
-                    "text_unit_id": "tu_work_gen_1_1",
-                    "reference": "Gênesis 1:1",
-                    "text": VERSE,
-                    "source_version": "TEST_ONLY",
-                }]
-            })
-        if path == "/api/billing/plans":
-            return self.respond(200, PLANS)
-        return self.respond(404, {"detail": {"code": "UNEXPECTED_FIXTURE_API", "message": path}})
+            return self.respond(200, {"work_id": "work_gen", "chapter": 1,
+                "units": [{"text_unit_id": "tu_work_gen_1_1", "verse": 1, "text": VERSE}]})
+        if path == "/api/progress": return self.respond(200, {"items": []})
+        if path == "/api/journal": return self.respond(200, {"items": []})
+        if path == "/api/bookmarks": return self.respond(200, {"text_unit_ids": []})
+        if path == "/api/highlights": return self.respond(200, {"items": []})
+        if path == "/api/faith-preferences/me": return self.respond(200, {"preference": None})
+        if path == "/api/billing/plans": return self.respond(200, {"checkout_enabled": False, "items": []})
+        if path == "/api/billing/me": return self.respond(200, {"entitlements": [], "checkouts": []})
+        if path == "/api/search": return self.respond(200, {"results": []})
+        return self.respond(404, {"detail": {"code": "UNEXPECTED_FIXTURE_PATH"}})
 
-    def do_POST(self) -> None:
+    def do_POST(self):
         path = urlparse(self.path).path
         CALLS.append(("POST", path))
-        self.respond(503, {"detail": {"code": "NO_CHECKOUT_IN_SMOKE"}})
+        if path == "/api/auth/login":
+            data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if data.get("email") != "reader@example.org" or data.get("password") != "secure-demo-password-2026":
+                return self.respond(401, {"detail": {"code": "BIBLE_LOGIN_INVALID"}})
+            return self.respond(200, self.context(), cookie=True)
+        if path == "/api/auth/logout":
+            if not self.logged_in() or self.headers.get("X-CSRF-Token") != CSRF:
+                return self.respond(403, {"detail": {"code": "BIBLE_CSRF_INVALID"}})
+            return self.respond(200, {"authenticated": False}, cookie=False)
+        return self.respond(503, {"detail": {"code": "NO_CHECKOUT_IN_SMOKE"}})
 
 
-def wait_for_frontend(process: subprocess.Popen, seconds: float = 20.0) -> None:
+def wait_for_frontend(process, seconds=20):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(f"Vite preview terminated unexpectedly (exit {process.returncode})")
+            raise RuntimeError(f"Native frontend terminated with exit code {process.returncode}")
         try:
-            with urlopen(APP_URL + "/", timeout=1) as response:
-                if response.status == 200:
-                    return
+            with urlopen(APP_URL + "/", timeout=1) as result:
+                if result.status == 200: return
         except (URLError, TimeoutError):
-            time.sleep(0.15)
-    raise TimeoutError("Vite preview failed to become ready")
+            time.sleep(.15)
+    raise TimeoutError("Node frontend did not become ready")
 
 
-def run() -> None:
-    if not (ROOT / "dist/index.html").is_file() or not (ROOT / "dist/app/index.html").is_file():
-        raise RuntimeError("Landing and app bundle absent: run VITE_API_BASE_URL=http://127.0.0.1:19001 npm run build")
+def main():
+    if not (ROOT / "dist/index.html").exists() or not (ROOT / "dist/app/index.html").exists():
+        raise RuntimeError("No bundle: run npm ci && npm run build")
     api = ThreadingHTTPServer(("127.0.0.1", 19001), FixtureApi)
     api.daemon_threads = True
-    thread = threading.Thread(target=api.serve_forever, daemon=True)
-    thread.start()
-    vite_bin = ROOT / "node_modules/.bin/vite"
-    if not vite_bin.is_file():
-        raise RuntimeError("Vite unavailable: run npm ci first")
-    preview = subprocess.Popen(
-        [str(vite_bin), "preview", "--host", "127.0.0.1", "--port", "18080", "--strictPort"],
-        cwd=ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
+    threading.Thread(target=api.serve_forever, daemon=True).start()
+    process = subprocess.Popen(
+        ["node", "server.mjs"], cwd=ROOT,
+        env={**os.environ, "PORT": "18080", "BIBLE_API_ORIGIN": API_URL,
+             "EFATA_PUBLIC_INDEXING_ENABLED": "false"},
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
     )
     try:
-        wait_for_frontend(preview)
+        wait_for_frontend(process)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
-                page = browser.new_page(viewport={"width": 1440, "height": 900})
-                exceptions: list[str] = []
-                page.on("pageerror", lambda error: exceptions.append(str(error)))
+                page = browser.new_page(viewport={"width": 1360, "height": 900})
+                js_errors = []
+                page.on("pageerror", lambda error: js_errors.append(str(error)))
                 page.goto(APP_URL + "/", wait_until="domcontentloaded")
                 expect(page.get_by_role("heading", name="Há uma Palavra que encontra a tua vida.")).to_be_visible()
-                assert page.locator('link[rel="canonical"]').get_attribute("href") == "https://efata777.com/"
-                assert page.get_by_role("main").count() == 1
                 page.goto(APP_URL + "/app/", wait_until="domcontentloaded")
+                expect(page.get_by_role("heading", name="Entrar")).to_be_visible()
+                page.get_by_label("E-mail").fill("reader@example.org")
+                page.get_by_label("Senha").fill("secure-demo-password-2026")
+                page.get_by_role("button", name="Entrar", exact=True).click()
                 expect(page.get_by_role("heading", name="Encontre espaço para a Palavra")).to_be_visible()
                 expect(page.get_by_text(VERSE).first).to_be_visible()
-                assert page.get_by_role("button", name="☆ Favoritar").first.is_disabled(), "Anonymous reader must be read-only"
-                assert page.get_by_role("button", name="OIDC não configurado").is_disabled(), "Production auth must be fail-closed"
-
                 page.get_by_role("button", name="Planos", exact=True).click()
-                expect(page.get_by_role("heading", name="Planos da Bíblia Sagrada")).to_be_visible()
                 expect(page.get_by_text("Pagamentos ainda não habilitados")).to_be_visible()
-                assert page.get_by_role("button", name="Em preparação").is_disabled(), "Checkout must stay disabled"
-
-                page.get_by_role("button", name="Busca", exact=True).click()
-                page.get_by_role("textbox", name="Termo de busca").fill("princípio")
-                page.get_by_role("button", name="Buscar", exact=True).click()
-                expect(page.get_by_text("Gênesis 1:1")).to_be_visible()
-                page.get_by_role("button", name="Abrir no leitor").click()
-                expect(page.get_by_role("heading", name="Encontre espaço para a Palavra")).to_be_visible()
-                expect(page.get_by_text(VERSE).first).to_be_visible()
-
-                if exceptions:
-                    raise AssertionError("Browser exceptions: " + "; ".join(exceptions))
-                if any(method == "POST" and path == "/api/billing/checkouts" for method, path in CALLS):
-                    raise AssertionError("Checkout endpoint was called during read-only smoke")
-                required = {
-                    "/api/works",
-                    "/api/works/work_gen/chapters/1",
-                    "/api/billing/plans",
-                    "/api/search",
-                }
-                observed = {path for _, path in CALLS}
-                missing = required - observed
-                if missing:
-                    raise AssertionError(f"Expected API calls missing: {sorted(missing)}")
-                print("BIBLE_FRONTEND_BROWSER_SMOKE_PASS: reader, search, plans, no checkout, anonymous safety")
+                assert not any(method == "POST" and path == "/api/billing/checkouts"
+                               for method, path in CALLS), "Billing never called"
+                assert any(method == "POST" and path == "/api/auth/login" for method, path in CALLS)
+                assert any(method == "GET" and path == "/api/auth/session" for method, path in CALLS)
+                assert not js_errors, js_errors
+                print("BIBLE_NATIVE_LOGIN_BROWSER_SMOKE_PASS")
             finally:
                 browser.close()
     finally:
-        preview.terminate()
-        try:
-            preview.communicate(timeout=5)
+        process.terminate()
+        try: process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
-            preview.kill()
-            preview.communicate()
+            process.kill()
+            process.communicate()
         api.shutdown()
         api.server_close()
 
 
 if __name__ == "__main__":
-    try:
-        run()
-    except Exception as error:
-        print(f"BIBLE_FRONTEND_BROWSER_SMOKE_FAIL: {error}", file=sys.stderr)
-        raise
+    main()

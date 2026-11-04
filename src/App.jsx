@@ -17,12 +17,74 @@ const tabs = [
   ["plans", "Planos"],
 ];
 
-function AuthControl() {
-  const [authenticated, setAuthenticated] = useState(hasToken());
-  const production = (import.meta.env.MODE || "development") === "production";
-  if (!production) return <span className="secure-mark">● sessão demo</span>;
-  if (authenticated) return <button className="text-button auth-button" onClick={() => { clearSession(); setAuthenticated(false); window.location.reload(); }}>Sair</button>;
-  return <button className="secondary auth-button" disabled={!oidcConfigured()} onClick={() => beginLogin().catch(() => {})}>{oidcConfigured() ? "Entrar" : "OIDC não configurado"}</button>;
+function AuthControl({ onLogout }) {
+  return <button className="text-button auth-button" type="button" onClick={onLogout}>Sair da conta</button>;
+}
+
+function NativeAccess({ onAuthenticated }) {
+  const queryToken = new URLSearchParams(window.location.search).get("reset_token") || "";
+  const [mode, setMode] = useState(queryToken ? "resetConfirm" : "login");
+  const [resetToken, setResetToken] = useState(queryToken);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [capabilities, setCapabilities] = useState({ registration_enabled: false, password_reset_enabled: false });
+  useEffect(() => {
+    api.authStatus().then(setCapabilities).catch(() => setCapabilities({ registration_enabled: false, password_reset_enabled: false }));
+  }, []);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (queryToken) window.history.replaceState({}, document.title, "/app/");
+  }, []);
+  async function submit(event) {
+    event.preventDefault();
+    setError(""); setMessage(""); setBusy(true);
+    try {
+      if (mode === "login") {
+        await api.login(email, password);
+        onAuthenticated(await api.authSession());
+      } else if (mode === "register") {
+        await api.register(email, password);
+        setMode("login"); setPassword("");
+        setMessage("Conta criada. Entre com seu e-mail e senha.");
+      } else if (mode === "resetRequest") {
+        await api.resetRequest(email);
+        setMessage("Se houver conta com esse e-mail, você receberá instruções.");
+      } else if (mode === "resetConfirm") {
+        await api.resetConfirm(resetToken, password);
+        setResetToken(""); setPassword(""); setMode("login");
+        setMessage("Senha redefinida. Entre na sua conta.");
+      }
+    } catch (err) {
+      setError(err.code === "BIBLE_REGISTRATION_DISABLED" ? "Cadastro temporariamente indisponível."
+        : err.code === "BIBLE_LOGIN_INVALID" ? "E-mail ou senha incorretos."
+        : err.code === "BIBLE_PASSWORD_RESET_UNAVAILABLE" ? "Recuperação ainda não habilitada."
+        : err.code === "BIBLE_LOGIN_RATE_LIMITED" ? "Muitas tentativas. Tente novamente mais tarde."
+        : err.message || "Não foi possível concluir a operação.");
+    } finally { setBusy(false); }
+  }
+  return <main className="auth-page">
+    <section className="auth-panel" aria-labelledby="auth-title">
+      <a href="/">← Voltar ao início</a>
+      <h1 id="auth-title">EfaTÀ 777 · Bíblia</h1>
+      <p>Uma conta própria para sua leitura, seus registros e seu caminho de fé.</p>
+      <h2>{mode === "login" ? "Entrar" : mode === "register" ? "Criar conta" : mode === "resetRequest" ? "Recuperar senha" : "Definir nova senha"}</h2>
+      <form onSubmit={submit}>
+        {mode !== "resetConfirm" && <label>E-mail<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
+        {mode !== "resetRequest" && <label>{mode === "resetConfirm" ? "Nova senha" : "Senha"}<input type="password" minLength={12} maxLength={128} autoComplete={mode === "login" ? "current-password" : "new-password"} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>}
+        {mode === "resetConfirm" && <label>Código de recuperação<input value={resetToken} required onChange={(event) => setResetToken(event.target.value)} /></label>}
+        {error && <p className="error-banner" role="alert">{error}</p>}
+        {message && <p role="status">{message}</p>}
+        <button className="primary" disabled={busy} type="submit">{busy ? "Processando…" : mode === "login" ? "Entrar" : mode === "register" ? "Criar conta" : mode === "resetRequest" ? "Enviar instruções" : "Redefinir senha"}</button>
+      </form>
+      <nav className="auth-navigation" aria-label="Conta">
+        {mode !== "login" && <button type="button" className="text-button" onClick={() => { setMode("login"); setError(""); }}>Já tenho uma conta</button>}
+        {capabilities.registration_enabled && mode !== "register" && <button type="button" className="text-button" onClick={() => { setMode("register"); setError(""); }}>Criar conta</button>}
+        {capabilities.password_reset_enabled && mode !== "resetRequest" && <button type="button" className="text-button" onClick={() => { setMode("resetRequest"); setError(""); }}>Esqueci a senha</button>}
+      </nav>
+    </section>
+  </main>;
 }
 
 function ErrorBanner({ error }) {
@@ -282,9 +344,9 @@ function GuidePanel({ blocks, status, onSubmit, onCancel }) {
   </section>;
 }
 
-export default function App() {
+function BibleWorkspace({ session, onLogout }) {
   const [activeTab, setActiveTab] = useState("reader");
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin] = useState(session.role === "admin");
   const [works, setWorks] = useState([]);
   const [selectedWork, setSelectedWork] = useState("work_gen");
   const [selectedChapter, setSelectedChapter] = useState("1");
@@ -293,7 +355,7 @@ export default function App() {
   const [bookmarks, setBookmarks] = useState([]);
   const [highlights, setHighlights] = useState([]);
   const [focusedUnitId, setFocusedUnitId] = useState(null);
-  const canPersonalize = (import.meta.env.MODE || "development") !== "production" || hasToken();
+  const canPersonalize = true;
   const [searchQuery, setSearchQuery] = useState("");
   const [results, setResults] = useState([]);
   const [entries, setEntries] = useState([]);
@@ -306,13 +368,6 @@ export default function App() {
   const [faithBusy, setFaithBusy] = useState(false);
   const [faithPromptDismissed, setFaithPromptDismissed] = useState(false);
   const controller = useRef(null);
-
-  useEffect(() => {
-    let active = true;
-    api.authContext().then((ctx) => { if (active) setIsAdmin(ctx.role === "admin"); })
-      .catch(() => { if (active) setIsAdmin(false); });
-    return () => { active = false; };
-  }, []);
 
   const selectedTitle = useMemo(() => works.find((item) => item.work_id === selectedWork)?.title || "Bíblia", [works, selectedWork]);
 
@@ -473,5 +528,28 @@ export default function App() {
     finally { setFaithBusy(false); }
   }
 
-  return <div className="app-shell"><header className="topbar"><div className="brand-mark"><span className="brand-symbol">✦</span><div><strong>EfaTÀ 777</strong><small>Bíblia digital · em desenvolvimento</small></div></div><div className="top-meta"><AuthControl /><span className="secure-mark">● ambiente local</span><span className="api-mark">API {apiBaseUrl()}</span></div></header><main className="content"><section className="hero"><div><p className="eyebrow">Leitura · estudo · presença</p><h1>Uma biblioteca viva para <em>caminhar</em> com o texto.</h1><p>Leia com fonte, contexto e liberdade. A plataforma separa Escritura, história, interpretação e reflexão pessoal.</p></div><div className="hero-card"><span className="hero-card-label">Hoje</span><strong>{selectedTitle}</strong><span>Capítulo {selectedChapter}</span><button className="secondary" onClick={() => setActiveTab("reader")}>Abrir leitura</button></div></section><nav className="tabbar" aria-label="Navegação principal">{[...tabs, ...(isAdmin ? [["admin", "Gestão"]] : [])].map(([id, label]) => <button key={id} className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)}>{label}</button>)}</nav><ErrorBanner error={error} />{canPersonalize && faithLoaded && !faithPreference && !faithPromptDismissed && activeTab !== "faith" && <div className="faith-invite" role="region" aria-label="Personalização opcional"><span><strong>Seu caminho de fé, seu jeito de estudar.</strong> Quer nos contar sua tradição? É opcional.</span><button type="button" className="secondary" onClick={() => setActiveTab("faith")}>Personalizar estudo</button><button type="button" className="text-button" onClick={() => setFaithPromptDismissed(true)}>Agora não</button></div>}{activeTab === "reader" && <Reader works={works} selectedWork={selectedWork} setSelectedWork={setSelectedWork} selectedChapter={selectedChapter} setSelectedChapter={setSelectedChapter} chapter={chapter} loading={loading} onLoad={loadChapter} progress={progress} onProgress={markProgress} bookmarks={bookmarks} highlights={highlights} onToggleBookmark={toggleBookmark} onAddHighlight={addHighlight} canPersonalize={canPersonalize} focusedUnitId={focusedUnitId} />}{activeTab === "search" && <SearchPanel onSearch={search} results={results} loading={loading} query={searchQuery} setQuery={setSearchQuery} onOpenResult={openTextUnit} />}{activeTab === "journey" && <JourneyPanel progress={progress} works={works} onStart={startDailyJourney} />}{activeTab === "saved" && <SavedPanel bookmarks={bookmarks} highlights={highlights} works={works} onOpen={openTextUnit} onRemoveBookmark={(id) => toggleBookmark(id, false)} onRemoveHighlight={deleteHighlight} canPersonalize={canPersonalize} />}{activeTab === "journal" && <JournalPanel entries={entries} onCreate={createJournal} onDelete={deleteJournal} loading={loading} />}{activeTab === "guide" && <GuidePanel blocks={guideBlocks} status={guideStatus} onSubmit={askGuide} onCancel={cancelGuide} />}{activeTab === "faith" && <FaithPreferencesPanel canPersonalize={canPersonalize} preference={faithPreference} onSave={saveFaithPreference} onDelete={deleteFaithPreference} onSkip={() => { setFaithPromptDismissed(true); setActiveTab("reader"); }} busy={faithBusy} />}{activeTab === "plans" && <PlansPanel />}{activeTab === "admin" && isAdmin && <AdminPanel />}</main><footer><span>EfaTÀ 777 · RC 0.12 desenvolvimento</span><span>Fonte: Bíblia Livre · <a href="https://creativecommons.org/licenses/by/3.0/br/" target="_blank" rel="noreferrer">CC BY 3.0 BR</a></span></footer></div>;
+  return <div className="app-shell"><header className="topbar"><div className="brand-mark"><span className="brand-symbol">✦</span><div><strong>EfaTÀ 777</strong><small>Bíblia digital · em desenvolvimento</small></div></div><div className="top-meta"><AuthControl onLogout={onLogout} /><span className="secure-mark">● sessão nativa</span><span className="api-mark">API {apiBaseUrl()}</span></div></header><main className="content"><section className="hero"><div><p className="eyebrow">Leitura · estudo · presença</p><h1>Uma biblioteca viva para <em>caminhar</em> com o texto.</h1><p>Leia com fonte, contexto e liberdade. A plataforma separa Escritura, história, interpretação e reflexão pessoal.</p></div><div className="hero-card"><span className="hero-card-label">Hoje</span><strong>{selectedTitle}</strong><span>Capítulo {selectedChapter}</span><button className="secondary" onClick={() => setActiveTab("reader")}>Abrir leitura</button></div></section><nav className="tabbar" aria-label="Navegação principal">{[...tabs, ...(isAdmin ? [["admin", "Gestão"]] : [])].map(([id, label]) => <button key={id} className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)}>{label}</button>)}</nav><ErrorBanner error={error} />{canPersonalize && faithLoaded && !faithPreference && !faithPromptDismissed && activeTab !== "faith" && <div className="faith-invite" role="region" aria-label="Personalização opcional"><span><strong>Seu caminho de fé, seu jeito de estudar.</strong> Quer nos contar sua tradição? É opcional.</span><button type="button" className="secondary" onClick={() => setActiveTab("faith")}>Personalizar estudo</button><button type="button" className="text-button" onClick={() => setFaithPromptDismissed(true)}>Agora não</button></div>}{activeTab === "reader" && <Reader works={works} selectedWork={selectedWork} setSelectedWork={setSelectedWork} selectedChapter={selectedChapter} setSelectedChapter={setSelectedChapter} chapter={chapter} loading={loading} onLoad={loadChapter} progress={progress} onProgress={markProgress} bookmarks={bookmarks} highlights={highlights} onToggleBookmark={toggleBookmark} onAddHighlight={addHighlight} canPersonalize={canPersonalize} focusedUnitId={focusedUnitId} />}{activeTab === "search" && <SearchPanel onSearch={search} results={results} loading={loading} query={searchQuery} setQuery={setSearchQuery} onOpenResult={openTextUnit} />}{activeTab === "journey" && <JourneyPanel progress={progress} works={works} onStart={startDailyJourney} />}{activeTab === "saved" && <SavedPanel bookmarks={bookmarks} highlights={highlights} works={works} onOpen={openTextUnit} onRemoveBookmark={(id) => toggleBookmark(id, false)} onRemoveHighlight={deleteHighlight} canPersonalize={canPersonalize} />}{activeTab === "journal" && <JournalPanel entries={entries} onCreate={createJournal} onDelete={deleteJournal} loading={loading} />}{activeTab === "guide" && <GuidePanel blocks={guideBlocks} status={guideStatus} onSubmit={askGuide} onCancel={cancelGuide} />}{activeTab === "faith" && <FaithPreferencesPanel canPersonalize={canPersonalize} preference={faithPreference} onSave={saveFaithPreference} onDelete={deleteFaithPreference} onSkip={() => { setFaithPromptDismissed(true); setActiveTab("reader"); }} busy={faithBusy} />}{activeTab === "plans" && <PlansPanel />}{activeTab === "admin" && isAdmin && <AdminPanel />}</main><footer><span>EfaTÀ 777 · RC 0.12 desenvolvimento</span><span>Fonte: Bíblia Livre · <a href="https://creativecommons.org/licenses/by/3.0/br/" target="_blank" rel="noreferrer">CC BY 3.0 BR</a></span></footer></div>;
+}
+
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+  useEffect(() => {
+    let active = true;
+    api.authSession().then((context) => { if (active) setSession(context); })
+      .catch(() => { if (active) setSession(null); })
+      .finally(() => { if (active) setLoadingSession(false); });
+    return () => { active = false; };
+  }, []);
+  async function logout() {
+    try { await api.logout(); }
+    catch (error) {
+      window.alert(`Não foi possível encerrar a sessão: ${error.message}`);
+      return;
+    }
+    setSession(null);
+  }
+  if (loadingSession) return <main className="auth-page"><p>Verificando sua sessão…</p></main>;
+  if (!session) return <NativeAccess onAuthenticated={setSession} />;
+  return <BibleWorkspace key={session.user_id} session={session} onLogout={logout} />;
 }

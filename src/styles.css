@@ -138,3 +138,12 @@ footer { max-width: 1240px; margin: auto; padding: 22px 32px 42px; display: flex
 .faith-actions { display:flex; flex-wrap:wrap; align-items:center; gap:11px; }
 .canon-notice { background:rgba(229,184,105,.07); border:1px solid rgba(229,184,105,.23); border-radius:10px; padding:16px; color:#d4c9b6; line-height:1.7; max-width:850px; }
 @media(max-width:650px) { .faith-invite { align-items:stretch; } .faith-actions { align-items:stretch; flex-direction:column; } .faith-actions button { width:100%; } }
+
+/* Standalone native authentication */
+.auth-page { min-height: 100vh; background: #f3f7f3; display: grid; place-items: center; padding: 1.5rem; }
+.auth-panel { background: white; padding: clamp(1.2rem, 5vw, 2.5rem); border-radius: 1rem; box-shadow: 0 12px 35px #122d2318; width: min(100%, 480px); color: #183a2c; }
+.auth-panel form { display: grid; gap: 1rem; margin: 1.5rem 0; }
+.auth-panel label { display: grid; gap: .45rem; font-weight: 600; }
+.auth-panel input { width: 100%; padding: .85rem; border: 1px solid #97ada1; border-radius: .5rem; font: inherit; }
+.auth-panel input:focus-visible { outline: 2px solid #3c7960; outline-offset: 2px; }
+.auth-navigation { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; }
