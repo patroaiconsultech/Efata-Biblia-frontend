@@ -1,0 +1,51 @@
+name: Bible frontend gate (no deployment)
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Locate frontend root
+        id: frontend
+        shell: bash
+        run: |
+          if [[ -f package.json && -f package-lock.json ]]; then
+            echo "app_dir=." >> "$GITHUB_OUTPUT"
+          elif [[ -f bible-app/package.json && -f bible-app/package-lock.json ]]; then
+            echo "app_dir=bible-app" >> "$GITHUB_OUTPUT"
+          else
+            echo "Frontend package and lockfile not found" >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Locked install, lint, JS tests, Vite build and bundle secret scan
+        working-directory: ${{ steps.frontend.outputs.app_dir }}
+        env:
+          CI: "true"
+          VITE_API_BASE_URL: "http://127.0.0.1:19001"
+        run: bash ci/verify.sh
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install browser smoke dependencies
+        run: |
+          python -m pip install --disable-pip-version-check 'playwright==1.57.0'
+          python -m playwright install --with-deps chromium
+      - name: Smoke production Vite bundle in Chromium with mock API
+        working-directory: ${{ steps.frontend.outputs.app_dir }}
+        env:
+          CI: "true"
+        run: python ci/e2e_smoke.py
