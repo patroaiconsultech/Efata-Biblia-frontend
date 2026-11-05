@@ -1,4 +1,4 @@
-import { api, apiHeaders, apiBaseUrl } from "../api/client.js";
+import { api, apiHeaders } from "../api/client.js";
 import { createBibleSseParser } from "./protocol.js";
 
 export async function consumeBibleStream(threadId, content, mode, onEvent, signal) {
@@ -11,7 +11,9 @@ export async function consumeBibleStream(threadId, content, mode, onEvent, signa
   }
   const headers = apiHeaders({ "Content-Type": "application/json", Accept: "text/event-stream" }, "POST");
   const requestId = headers["X-Request-ID"];
-  const response = await fetch(`${apiBaseUrl()}/api/conversations/${encodeURIComponent(threadId)}/stream`, {
+  // Always use an absolute same-origin /api path. apiBaseUrl() is a display
+  // helper that can return "(mesma origem)" and MUST NOT construct fetch URLs.
+  const response = await fetch(`/api/conversations/${encodeURIComponent(threadId)}/stream`, {
     method: "POST",
     credentials: "same-origin",
     headers,
@@ -22,7 +24,6 @@ export async function consumeBibleStream(threadId, content, mode, onEvent, signa
   if (!response.headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) {
     throw new Error("BIBLE_SSE_CONTENT_TYPE_INVALID");
   }
-
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const parser = createBibleSseParser(onEvent, {
