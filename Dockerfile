@@ -1,13 +1,14 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-# The browser uses relative /api, so NO API/OIDC secrets or URLs are built in.
+# No privileged credentials are exposed to the browser build.
 ARG VITE_BUILD_SHA=UNPINNED
 
 COPY . .
-RUN node ci/validate_railway_build_env.mjs && npm run build
+RUN node ci/validate_railway_build_env.mjs && npm run build && test -s dist/index.html && test -s dist/app/index.html && test -s dist/landing.css && test -s dist/landing.js
 
 FROM node:22-alpine
 WORKDIR /app
