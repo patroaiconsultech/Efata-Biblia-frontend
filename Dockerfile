@@ -8,7 +8,15 @@ RUN npm ci --no-audit --no-fund
 ARG VITE_BUILD_SHA=UNPINNED
 
 COPY . .
-RUN node ci/validate_railway_build_env.mjs && npm run build && test -s dist/index.html && test -s dist/app/index.html && test -s dist/landing.css && test -s dist/landing.js
+# Landing is static HTML with /landing.css and /landing.js from public/.
+# Vite 8 output observed on Railway contains app/index.html but no root index.html.
+# Restore the static landing only when Vite did not emit it; never skip checks.
+RUN node ci/validate_railway_build_env.mjs && npm run build && \
+    if [ ! -s dist/index.html ]; then cp index.html dist/index.html; fi && \
+    test -s dist/index.html && \
+    test -s dist/app/index.html && \
+    test -s dist/landing.css && \
+    test -s dist/landing.js
 
 FROM node:22-alpine
 WORKDIR /app
