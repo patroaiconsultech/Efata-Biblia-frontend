@@ -1,26 +1,32 @@
 import { api, apiHeaders } from "../api/client.js";
 import { createBibleSseParser } from "./protocol.js";
 
-export async function consumeBibleStream(threadId, content, mode, onEvent, signal) {
-  // Resolve the principal through the server's validated authentication path.
-  // Never derive tenant identity from a browser-controlled header or an
-  // unverified JWT payload.
+export async function consumeBibleStream(threadId, content, mode, onEvent, signal, aiOptIn = false) {
+  // Native identity and CSRF remain server-verified; no browser tenant headers.
   const principal = await api.authContext(signal);
   if (typeof principal.tenant_id !== "string" || !principal.tenant_id) {
     throw new Error("BIBLE_SSE_AUTH_CONTEXT_INVALID");
   }
   const headers = apiHeaders({ "Content-Type": "application/json", Accept: "text/event-stream" }, "POST");
   const requestId = headers["X-Request-ID"];
-  // Always use an absolute same-origin /api path. apiBaseUrl() is a display
-  // helper that can return "(mesma origem)" and MUST NOT construct fetch URLs.
-  const response = await fetch(`/api/conversations/${encodeURIComponent(threadId)}/stream`, {
+  const route = aiOptIn ? "ai-stream" : "stream";
+  // Absolute same-origin path; never prepend the UI label "(mesma origem)".
+  const response = await fetch(`/api/conversations/${encodeURIComponent(threadId)}/${route}`, {
     method: "POST",
     credentials: "same-origin",
     headers,
-    body: JSON.stringify({ thread_id: threadId, content, mode, request_id: requestId }),
+    body: JSON.stringify({
+      thread_id: threadId,
+      content,
+      mode,
+      request_id: requestId,
+      ...(aiOptIn ? { ai_opt_in: true } : {}),
+    }),
     signal,
   });
-  if (!response.ok || !response.body) throw new Error(`Stream unavailable (${response.status})`);
+  if (!response.ok || !response.body) {
+    throw new Error(`Stream unavailable (${response.status})`);
+  }
   if (!response.headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) {
     throw new Error("BIBLE_SSE_CONTENT_TYPE_INVALID");
   }

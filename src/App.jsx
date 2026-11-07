@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, apiBaseUrl } from "./api/client.js";
+import { api, apiBaseUrl, apiFetch } from "./api/client.js";
 import { consumeBibleStream } from "./sse/stream.js";
 import { parseTextUnitId, formatTextUnitReference } from "./lib/references.js";
 import { beginLogin, clearSession, hasToken, oidcConfigured } from "./auth/oidc.js";
@@ -333,14 +333,21 @@ const blockLabels = {
 function GuidePanel({ blocks, status, onSubmit, onCancel }) {
   const [content, setContent] = useState("");
   const [mode, setMode] = useState("SCRIPTURE_EXPLANATION");
-  const submit = async (event) => { event.preventDefault(); if (!content.trim()) return; if (await onSubmit(content.trim(), mode)) setContent(""); };
-  return <section className="panel guide" aria-labelledby="guide-title"><div className="panel-heading"><div><p className="eyebrow">Assistência responsável</p><h2 id="guide-title">Guia da Palavra</h2><p className="muted">Versão determinística de estudo: não gera profecias e não possui ainda pesquisa histórica ou modelo de IA conectado. Escolha um modo ou escreva sua pergunta.</p></div><span className={`status-pill ${status === "streaming" ? "live" : ""}`}>{status === "streaming" ? "respondendo" : status === "done" ? "concluído" : "pronto"}</span></div>
+  const [aiOptIn, setAiOptIn] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState(false);
+  useEffect(() => {
+    let active = true;
+    apiFetch("/api/conversations/ai-status").then((data) => { if (active) setAiAvailable(data.enabled === true); }).catch(() => { if (active) setAiAvailable(false); });
+    return () => { active = false; };
+  }, []);
+  const submit = async (event) => { event.preventDefault(); if (!content.trim()) return; if (await onSubmit(content.trim(), mode, aiOptIn)) { setContent(""); setAiOptIn(false); } };
+  return <section className="panel guide" aria-labelledby="guide-title"><div className="panel-heading"><div><p className="eyebrow">Assistência responsável</p><h2 id="guide-title">Guia da Palavra</h2><p className="muted">Modo padrão determinístico. IA opcional por pergunta (OpenAI), sem acesso ao corpus pendente de direitos e sem armazenamento de histórico privado. Escolha um modo ou escreva sua pergunta.</p></div><span className={`status-pill ${status === "streaming" ? "live" : ""}`}>{status === "streaming" ? "respondendo" : status === "done" ? "concluído" : "pronto"}</span></div>
     <div className="guide-output" aria-live="polite">{blocks.length ? blocks.map((block, index) => <article className={`guide-block ${block.block_type.toLowerCase()}`} key={`${block.block_type}-${index}`}><span>{blockLabels[block.block_type] || block.block_type.replaceAll("_", " ")}</span><p>{block.content}</p>{block.citations?.map((citation) => <small key={citation.citation_id}>Fonte: {citation.display_label}</small>)}</article>) : <div className="empty-state">Ex.: “Explique Gênesis 1:1”</div>}</div>
     <form className="guide-form" onSubmit={submit}><label className="guide-mode-label">Como deseja conversar?
       <select aria-label="Modo do Guia" value={mode} onChange={(event) => setMode(event.target.value)} disabled={status === "streaming"}>
         {guideModes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
-    </label><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Escreva sua pergunta…" rows="3" disabled={status === "streaming"} /><div className="guide-actions"><span className="small-note">SSE `bible.sse.v1` · `done` obrigatório</span>{status === "streaming" ? <button type="button" className="secondary" onClick={onCancel}>Cancelar</button> : <button className="primary">Enviar pergunta</button>}</div></form>
+    </label>{aiAvailable && <label className="small-note"><input type="checkbox" checked={aiOptIn} onChange={(event) => setAiOptIn(event.target.checked)} disabled={status === "streaming"} /> Autorizar o envio desta pergunta à OpenAI para resposta por IA. Não inclua dados sensíveis ou trechos protegidos por direitos autorais. A versão determinística não envia dados à OpenAI.</label>}<textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Escreva sua pergunta…" rows="3" disabled={status === "streaming"} /><div className="guide-actions"><span className="small-note">SSE `bible.sse.v1` · `done` obrigatório</span>{status === "streaming" ? <button type="button" className="secondary" onClick={onCancel}>Cancelar</button> : <button className="primary">Enviar pergunta</button>}</div></form>
   </section>;
 }
 
@@ -486,7 +493,7 @@ function BibleWorkspace({ session, onLogout }) {
     finally { setLoading(false); }
   }
   async function deleteJournal(entryId) { try { await api.deleteJournal(entryId); setEntries((await api.journal()).items); } catch (err) { setError(err); } }
-  async function askGuide(content, mode = "SCRIPTURE_EXPLANATION") {
+  async function askGuide(content, mode = "SCRIPTURE_EXPLANATION", aiOptIn = false) {
     controller.current = new AbortController();
     setGuideBlocks([]); setGuideStatus("streaming"); setError(null);
     let success = false;
@@ -500,7 +507,7 @@ function BibleWorkspace({ session, onLogout }) {
           success = event.payload.outcome === "success";
           setGuideStatus(success ? "done" : "ready");
         }
-      }, controller.current.signal);
+      }, controller.current.signal, aiOptIn);
     } catch (err) {
       if (err.name !== "AbortError") setError(err);
       setGuideStatus("ready");
